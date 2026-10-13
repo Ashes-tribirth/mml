@@ -1,6 +1,7 @@
 import { AudioToMidiConverter, audioToMidiDefaults } from "@musicbento/audio-to-midi";
 import { Midi } from "@tonejs/midi";
 import { createSeparator } from "web-audio-separation";
+import { env } from "onnxruntime-web";
 
 const $ = (selector) => document.querySelector(selector);
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -20,6 +21,11 @@ let busy = false;
 let midiUrl = null;
 
 const modelUrl = `${import.meta.env.BASE_URL}model/model.json`;
+// Vite cannot infer ONNX Runtime's dynamically imported module.  Serve both
+// runtime files explicitly and force the Safari-safe, single-threaded fallback.
+env.wasm.wasmPaths = `${import.meta.env.BASE_URL}ort/`;
+env.wasm.numThreads = 1;
+env.wasm.proxy = false;
 function setNotice(message) { notice.textContent = message; }
 function extensionOf(file) {
   const index = file.name.lastIndexOf(".");
