@@ -53,10 +53,9 @@ function quantizeToVoices(notes, tempo) {
       start: Math.max(0, Math.round(note.time / stepSeconds)),
       end: Math.max(1, Math.round((note.time + note.duration) / stepSeconds)),
     }))
-    // A single 16th-note-sized detection in a full mix is usually a drum hit,
-    // reverb, or a model glitch. Keeping it creates the octave ping-pong heard
-    // in the first prototype.
-    .filter((note) => note.end - note.start >= 2);
+    // Keep a 16th-note-sized event. Removing it made legitimate fast phrases
+    // disappear; voice tracking below is responsible for reducing instability.
+    .filter((note) => note.end - note.start >= 1);
   if (!usable.length) throw new Error("演奏可能な音符を検出できませんでした。短く音が明瞭な区間で試してください。");
 
   const length = Math.min(Math.max(...usable.map((note) => note.end)), Math.ceil(MAX_DURATION_SECONDS / stepSeconds));
@@ -131,8 +130,9 @@ function simplifyVoice(sequence) {
     if (value !== null && end - start < 2) {
       const before = output[start - 1];
       const after = output[end];
-      const replacement = before !== null && before === after ? before : null;
-      output.fill(replacement, start, end);
+      // A one-step gap between equal notes is almost always a split note. Do
+      // not delete other short notes: they may be intentional 16th notes.
+      if (before !== null && before === after) output.fill(before, start, end);
     }
     start = end;
   }
@@ -225,9 +225,9 @@ async function transcribe() {
       maxFileSizeMb: 100,
       maxDurationSeconds: MAX_DURATION_SECONDS,
       tempo: Number(bpm.value),
-      onsetThreshold: 0.68,
-      frameThreshold: 0.46,
-      minimumNoteLength: 8,
+      onsetThreshold: 0.58,
+      frameThreshold: 0.38,
+      minimumNoteLength: 5,
       backend: "webgl",
     });
     const result = await converter.convert(selectedFile, {
