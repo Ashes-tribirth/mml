@@ -7,10 +7,10 @@
 <title>MML Forge — マビノギモバイル用MML変換</title><link rel="stylesheet" href="style.css"><script type="module" src="/src/main.js"></script>
 </head><body><main class="wrap">
 <div class="eyebrow">MABINOGI MOBILE · BETA</div><h1>音源から<br><b>3パートMML</b>へ。</h1>
-<p class="lead">端末内で歌声と伴奏を分離してからAI採譜し、メロディ・和音1・和音2へ自動配置します。音源はサーバーへ送信されません。</p>
+<p class="lead">端末内でAI採譜して音符データを作り、メロディ・和音1・和音2へ自動配置します。音源はサーバーへ送信されません。</p>
 <section class="grid"><div class="card"><h2>1. 音源を入れる</h2><label id="drop" class="drop" for="file"><strong id="name">音源を選ぶ</strong><small>MP3 / WAV / M4A / OGG ほか<br>30〜60秒推奨・最大100MB・3分以内</small></label><input id="file" type="file" accept=".mp3,.wav,.m4a,.ogg,.aac,.flac,.webm,audio/*">
 <div class="field"><label>テンポ <output id="bpmout">120 BPM</output></label><input id="bpm" type="range" min="60" max="220" value="120"></div><p class="hint">テンポが分からなければ120で試して、ゲーム内試聴で合わなければ調整してください。</p><button id="go" class="action" disabled>AI採譜して3パートMMLにする</button><p id="notice" class="notice" aria-live="polite">音源はアップロードされません。ブラウザ内でだけ処理します。</p></div>
-<aside class="card"><h2>この版でできること</h2><ul class="facts"><li><b>処理：</b>音源→歌声・伴奏の分離→MIDI相当の音符データ→3パートMML。</li><li><b>分け方：</b>歌声をメロディ、伴奏を和音1・和音2へ配置。</li><li><b>初回：</b>分離モデル約67MBをダウンロードします。音源は送信されず、モデルはブラウザにキャッシュされます。</li><li><b>上限：</b>各パート2,400文字で出力を止めます。</li><li><b>限界：</b>ドラムや密な伴奏から和音を完全に譜面化することはできません。試聴での確認は必要です。</li></ul></aside></section>
+<aside class="card"><h2>この版でできること</h2><ul class="facts"><li><b>処理：</b>音源→MIDI相当の音符データ→3パートMML。</li><li><b>分け方：</b>検出した高音をメロディ、残りを和音1・和音2へ配置。</li><li><b>上限：</b>各パート2,400文字で出力を止めます。</li><li><b>限界：</b>フル楽曲の採譜は下書きです。ドラム・歌・伴奏が混ざると誤音が出ます。</li><li><b>確認：</b>ゲーム内の試聴で必ず確認してください。</li></ul></aside></section>
 <section id="out" class="out"><div id="status" class="status" aria-live="polite"></div><div id="tracks" class="tracks"></div><div class="result-actions"><a id="midi-download" class="download" download="transcription.mid">採譜したMIDIを保存</a></div><p id="metrics" class="metrics"></p></section>
 <div class="warn"><b>正直な限界：</b>自動採譜は耳コピの下書きです。特に原曲そのままのフル音源では、採譜結果の確認と調整が必要です。単音リードや伴奏の少ない短い区間ほど成功しやすくなります。</div>
 </main></body></html>
