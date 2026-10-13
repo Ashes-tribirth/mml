@@ -1,7 +1,5 @@
 import { AudioToMidiConverter, audioToMidiDefaults } from "@musicbento/audio-to-midi";
 import { Midi } from "@tonejs/midi";
-import { createSeparator } from "web-audio-separation";
-import { env } from "onnxruntime-web";
 
 const $ = (selector) => document.querySelector(selector);
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -21,11 +19,6 @@ let busy = false;
 let midiUrl = null;
 
 const modelUrl = `${import.meta.env.BASE_URL}model/model.json`;
-// Vite cannot infer ONNX Runtime's dynamically imported module.  Serve both
-// runtime files explicitly and force the Safari-safe, single-threaded fallback.
-env.wasm.wasmPaths = `${import.meta.env.BASE_URL}ort/`;
-env.wasm.numThreads = 1;
-env.wasm.proxy = false;
 function setNotice(message) { notice.textContent = message; }
 function extensionOf(file) {
   const index = file.name.lastIndexOf(".");
@@ -217,12 +210,6 @@ function showTracks(results) {
   });
 }
 
-async function fileFromObjectUrl(url, name) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("分離した音声を読み出せませんでした。");
-  return new File([await response.blob()], name, { type: "audio/wav" });
-}
-
 function createConverter(tempo) {
   return new AudioToMidiConverter({
     ...audioToMidiDefaults,
@@ -230,11 +217,9 @@ function createConverter(tempo) {
     maxFileSizeMb: 100,
     maxDurationSeconds: MAX_DURATION_SECONDS,
     tempo,
-    // The separated stems are markedly cleaner than a full mix, so retain
-    // short melodic notes instead of suppressing them with a long threshold.
-    onsetThreshold: 0.42,
-    frameThreshold: 0.3,
-    minimumNoteLength: 2,
+    onsetThreshold: 0.5,
+    frameThreshold: 0.32,
+    minimumNoteLength: 3,
     backend: "webgl",
   });
 }
@@ -255,54 +240,22 @@ async function transcribe() {
   runButton.disabled = true;
   runButton.textContent = "採譜モデルを準備中…";
   $("#out").classList.remove("show");
-  let sourceUrl = null;
-  let stemUrls = [];
   try {
     const tempo = Number(bpm.value);
-    // Basic Pitch is useful for a stem, but not for a complete commercial mix.
-    // Split vocals from accompaniment first; both the source and the stems stay
-    // in browser memory. The separator model itself is downloaded once and then
-    // cached by the browser.
-    sourceUrl = URL.createObjectURL(selectedFile);
-    setNotice("歌声と伴奏を分離するモデルを準備中…（初回のみ約67MB）");
-    const separator = createSeparator("UVR-MDX-NET-Voc_FT", {
-      common: {
-        logLevel: "warning",
-        onProgress: (stage) => {
-          const text = stage === "loading-model" ? "分離モデルをダウンロード中…（初回のみ約67MB）" : stage === "demixing" ? "歌声と伴奏を分離中…" : "分離した音声を準備中…";
-          setNotice(text);
-        },
-      },
-      mdx: { executionProviders: ["webgpu", "wasm"], batchSize: 1 },
-    });
-    await separator.loadModel();
-    stemUrls = await separator.separate(sourceUrl);
-    // This model returns [instrumental, vocals]. Analyze vocals for melody and
-    // accompaniment separately for the two harmony voices.
-    const [instrumentalFile, vocalFile] = await Promise.all([
-      fileFromObjectUrl(stemUrls[0], "instrumental.wav"),
-      fileFromObjectUrl(stemUrls[1], "vocals.wav"),
-    ]);
     const converter = createConverter(tempo);
-    const [vocalResult, instrumentalResult] = await Promise.all([
-      convertFile(converter, vocalFile, "歌声パート"),
-      convertFile(converter, instrumentalFile, "伴奏パート"),
-    ]);
-    const vocalNotes = new Midi(vocalResult.midiBytes).tracks.flatMap((track) => track.notes);
-    const instrumentalNotes = new Midi(instrumentalResult.midiBytes).tracks.flatMap((track) => track.notes);
-    const melody = quantizeToVoices(vocalNotes, tempo).voices[0];
-    const accompaniment = quantizeToVoices(instrumentalNotes, tempo).voices;
-    const voices = [melody, accompaniment[1], accompaniment[2]];
+    const result = await convertFile(converter, selectedFile, "音源");
+    const notes = new Midi(result.midiBytes).tracks.flatMap((track) => track.notes);
+    const { voices, sourceNotes } = quantizeToVoices(notes, tempo);
     const rendered = voices.map((voice) => renderMml(voice, tempo));
     showTracks(rendered);
     if (midiUrl) URL.revokeObjectURL(midiUrl);
-    midiUrl = URL.createObjectURL(vocalResult.midiBlob);
+    midiUrl = URL.createObjectURL(result.midiBlob);
     $("#midi-download").href = midiUrl;
     const capped = rendered.some((part) => part.truncated);
     $("#status").textContent = capped
       ? "採譜結果を3パートに分けました。一部は2,400文字の暫定上限で止めています。"
-      : "歌声と伴奏を別々に採譜して、メロディ・和音1・和音2に分けました。ゲーム内の試聴で確認してください。";
-    $("#metrics").textContent = `歌声の検出音符：${vocalNotes.length} ／ 伴奏の検出音符：${instrumentalNotes.length} ／ 各パート上限：2,400文字 ／ テンポ：${bpm.value} BPM`;
+      : "検出した音符を、連続した声部としてメロディ・和音1・和音2に分けました。ゲーム内の試聴で確認してください。";
+    $("#metrics").textContent = `AIが検出した音符：${sourceNotes} ／ 各パート上限：2,400文字 ／ テンポ：${bpm.value} BPM`;
     $("#out").classList.add("show");
     setNotice("完了。各パートを個別にコピーして、ゲーム内の対応欄へ貼り付けてください。");
   } catch (error) {
@@ -310,8 +263,6 @@ async function transcribe() {
     const friendly = message === "audio-too-long" ? "音源が長すぎます。3分以内に切り出してください。" : message;
     setNotice(`変換できませんでした：${friendly}`);
   } finally {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    stemUrls.forEach((url) => URL.revokeObjectURL(url));
     busy = false;
     runButton.disabled = !selectedFile;
     runButton.textContent = "AI採譜して3パートMMLにする";
